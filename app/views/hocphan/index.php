@@ -9,6 +9,7 @@ ob_start();
         <th>Mã Học Phần</th>
         <th>Tên Học Phần</th>
         <th>Số Tín Chỉ</th>
+        <th>Số lượng còn lại</th>
         <th>Actions</th>
     </tr>
     <?php while($row = $availableCourses->fetch_assoc()): ?>
@@ -16,23 +17,24 @@ ob_start();
         <td><?php echo $row['MaHP']; ?></td>
         <td><?php echo $row['TenHP']; ?></td>
         <td><?php echo $row['SoTinChi']; ?></td>
+        <td><?php echo $row['SoLuong']; ?></td>
         <td>
-            <form action="index.php?controller=hocphan&action=register" method="POST" style="display: inline;">
+            <?php if ($row['SoLuong'] > 0): ?>
+            <form action="index.php?controller=dangkyhocphan&action=addToCart" method="POST" style="display: inline;">
                 <input type="hidden" name="MaHP" value="<?php echo $row['MaHP']; ?>">
                 <button type="submit" class="btn-register">Đăng ký</button>
             </form>
+            <?php else: ?>
+            <span class="text-danger">Hết chỗ</span>
+            <?php endif; ?>
         </td>
     </tr>
     <?php endwhile; ?>
 </table>
 
-<?php if (isset($_GET['success'])): ?>
+<?php if (isset($_GET['success']) && $_GET['success'] === 'added'): ?>
 <div class="alert alert-success">
-    <?php 
-    if ($_GET['success'] === 'registered') {
-        echo 'Đăng ký học phần thành công!';
-    }
-    ?>
+    Đã thêm học phần vào giỏ đăng ký!
 </div>
 <?php endif; ?>
 
@@ -43,11 +45,14 @@ ob_start();
         case 'already_registered':
             echo 'Học phần này đã được đăng ký!';
             break;
+        case 'already_in_cart':
+            echo 'Học phần này đã có trong giỏ đăng ký!';
+            break;
         case 'course_not_found':
             echo 'Không tìm thấy học phần này!';
             break;
-        case 'registration_failed':
-            echo 'Có lỗi xảy ra khi đăng ký học phần. Vui lòng thử lại!';
+        case 'no_slots':
+            echo 'Học phần này đã hết chỗ!';
             break;
     }
     ?>
@@ -82,6 +87,11 @@ th {
 
 .btn-register:hover {
     background-color: #45a049;
+}
+
+.text-danger {
+    color: #dc3545;
+    font-weight: bold;
 }
 
 .alert {

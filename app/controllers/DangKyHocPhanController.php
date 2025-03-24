@@ -28,34 +28,6 @@ class DangKyHocPhanController {
         $_SESSION['NgaySinh'] = $student['NgaySinh'];
         $_SESSION['MaNganh'] = $student['MaNganh'];
 
-        // Initialize variables
-        $availableCourses = null;
-        $totalCourses = 0;
-        $totalCredits = 0;
-
-        // Get selected courses from session
-        if (isset($_SESSION['selected_courses']) && is_array($_SESSION['selected_courses']) && !empty($_SESSION['selected_courses'])) {
-            $placeholders = str_repeat('?,', count($_SESSION['selected_courses']) - 1) . '?';
-            $sql = "SELECT * FROM HocPhan WHERE MaHP IN ($placeholders)";
-            $stmt = $this->conn->prepare($sql);
-            
-            // Create array of parameters for bind_param
-            $types = str_repeat('s', count($_SESSION['selected_courses']));
-            $params = array_merge(array($types), $_SESSION['selected_courses']);
-            
-            // Use call_user_func_array to bind parameters
-            call_user_func_array(array($stmt, 'bind_param'), $params);
-            
-            $stmt->execute();
-            $availableCourses = $stmt->get_result();
-        } else {
-            // Create empty result set if no courses selected
-            $sql = "SELECT * FROM HocPhan WHERE 1=0";
-            $stmt = $this->conn->prepare($sql);
-            $stmt->execute();
-            $availableCourses = $stmt->get_result();
-        }
-
         // Get registered courses with registration details
         $sql = "SELECT hp.*, dk.NgayDK, dk.MaDK 
                 FROM HocPhan hp 
@@ -86,43 +58,68 @@ class DangKyHocPhanController {
         }
 
         $mahp = $_POST['MaHP'];
-        
-        // Initialize session array if not exists
-        if (!isset($_SESSION['selected_courses']) || !is_array($_SESSION['selected_courses'])) {
-            $_SESSION['selected_courses'] = array();
-        }
-
-        // Check if course is already registered
         $masv = $_SESSION['MaSV'];
-        $sql = "SELECT 1 FROM DangKy dk 
-                JOIN ChiTietDangKy ct ON dk.MaDK = ct.MaDK 
-                WHERE dk.MaSV = ? AND ct.MaHP = ?";
-        $stmt = $this->conn->prepare($sql);
-        $stmt->bind_param("ss", $masv, $mahp);
-        $stmt->execute();
-        if ($stmt->get_result()->num_rows > 0) {
-            header('Location: index.php?controller=hocphan&error=already_registered');
-            exit;
-        }
 
-        // Check if course is already in cart
-        if (!in_array($mahp, $_SESSION['selected_courses'])) {
-            // Get course details to verify it exists
-            $sql = "SELECT * FROM HocPhan WHERE MaHP = ?";
+        $this->conn->begin_transaction();
+
+        try {
+            // Check if course is already registered
+            $sql = "SELECT 1 FROM DangKy dk 
+                    JOIN ChiTietDangKy ct ON dk.MaDK = ct.MaDK 
+                    WHERE dk.MaSV = ? AND ct.MaHP = ?";
+            $stmt = $this->conn->prepare($sql);
+            $stmt->bind_param("ss", $masv, $mahp);
+            $stmt->execute();
+            if ($stmt->get_result()->num_rows > 0) {
+                throw new Exception("Học phần đã được đăng ký");
+            }
+
+            // Check available slots
+            $sql = "SELECT SoLuong FROM HocPhan WHERE MaHP = ? FOR UPDATE";
             $stmt = $this->conn->prepare($sql);
             $stmt->bind_param("s", $mahp);
             $stmt->execute();
             $result = $stmt->get_result();
+            $course = $result->fetch_assoc();
             
-            if ($result->num_rows > 0) {
-                $_SESSION['selected_courses'][] = $mahp;
-                $_SESSION['cart_updated'] = true;
-                header('Location: index.php?controller=hocphan&success=added');
-            } else {
-                header('Location: index.php?controller=hocphan&error=course_not_found');
+            if ($course['SoLuong'] <= 0) {
+                throw new Exception("Học phần đã hết chỗ");
             }
-        } else {
-            header('Location: index.php?controller=hocphan&error=already_in_cart');
+
+            // Create new DangKy record
+            $sql = "INSERT INTO DangKy (NgayDK, MaSV) VALUES (CURDATE(), ?)";
+            $stmt = $this->conn->prepare($sql);
+            $stmt->bind_param("s", $masv);
+            
+            if (!$stmt->execute()) {
+                throw new Exception("Lỗi khi tạo đăng ký");
+            }
+            
+            $madk = $this->conn->insert_id;
+
+            // Add course to ChiTietDangKy
+            $sql = "INSERT INTO ChiTietDangKy (MaDK, MaHP) VALUES (?, ?)";
+            $stmt = $this->conn->prepare($sql);
+            $stmt->bind_param("is", $madk, $mahp);
+            
+            if (!$stmt->execute()) {
+                throw new Exception("Lỗi khi thêm chi tiết đăng ký");
+            }
+
+            // Update available slots
+            $sql = "UPDATE HocPhan SET SoLuong = SoLuong - 1 WHERE MaHP = ?";
+            $stmt = $this->conn->prepare($sql);
+            $stmt->bind_param("s", $mahp);
+            
+            if (!$stmt->execute()) {
+                throw new Exception("Lỗi khi cập nhật số lượng");
+            }
+
+            $this->conn->commit();
+            header('Location: index.php?controller=hocphan&success=registered');
+        } catch (Exception $e) {
+            $this->conn->rollback();
+            header('Location: index.php?controller=hocphan&error=' . urlencode($e->getMessage()));
         }
         exit;
     }
@@ -175,6 +172,20 @@ class DangKyHocPhanController {
         $this->conn->begin_transaction();
 
         try {
+            // Check available slots for all selected courses
+            foreach ($selectedCourses as $mahp) {
+                $sql = "SELECT SoLuong FROM HocPhan WHERE MaHP = ? FOR UPDATE";
+                $stmt = $this->conn->prepare($sql);
+                $stmt->bind_param("s", $mahp);
+                $stmt->execute();
+                $result = $stmt->get_result();
+                $course = $result->fetch_assoc();
+                
+                if ($course['SoLuong'] <= 0) {
+                    throw new Exception("Học phần $mahp đã hết chỗ");
+                }
+            }
+
             // Create new DangKy record
             $sql = "INSERT INTO DangKy (NgayDK, MaSV) VALUES (CURDATE(), ?)";
             $stmt = $this->conn->prepare($sql);
@@ -189,14 +200,24 @@ class DangKyHocPhanController {
                 throw new Exception("No MaDK was generated");
             }
 
-            // Create ChiTietDangKy records for each selected course
+            // Create ChiTietDangKy records and update slots for each selected course
             $sql = "INSERT INTO ChiTietDangKy (MaDK, MaHP) VALUES (?, ?)";
             $stmt = $this->conn->prepare($sql);
             
+            $updateSql = "UPDATE HocPhan SET SoLuong = SoLuong - 1 WHERE MaHP = ?";
+            $updateStmt = $this->conn->prepare($updateSql);
+            
             foreach ($selectedCourses as $mahp) {
+                // Add to ChiTietDangKy
                 $stmt->bind_param("is", $madk, $mahp);
                 if (!$stmt->execute()) {
                     throw new Exception("Error inserting into ChiTietDangKy: " . $stmt->error);
+                }
+                
+                // Update available slots
+                $updateStmt->bind_param("s", $mahp);
+                if (!$updateStmt->execute()) {
+                    throw new Exception("Error updating slots for course: " . $mahp);
                 }
             }
 
@@ -239,7 +260,6 @@ class DangKyHocPhanController {
             exit;
         }
 
-        // Start transaction
         $this->conn->begin_transaction();
 
         try {
@@ -248,7 +268,15 @@ class DangKyHocPhanController {
             $stmt = $this->conn->prepare($sql);
             $stmt->bind_param("is", $madk, $mahp);
             if (!$stmt->execute()) {
-                throw new Exception("Error deleting course registration");
+                throw new Exception("Lỗi khi xóa đăng ký học phần");
+            }
+
+            // Increase available slots
+            $sql = "UPDATE HocPhan SET SoLuong = SoLuong + 1 WHERE MaHP = ?";
+            $stmt = $this->conn->prepare($sql);
+            $stmt->bind_param("s", $mahp);
+            if (!$stmt->execute()) {
+                throw new Exception("Lỗi khi cập nhật số lượng");
             }
 
             // Check if this was the last course in this registration
@@ -262,7 +290,7 @@ class DangKyHocPhanController {
                 $stmt = $this->conn->prepare($sql);
                 $stmt->bind_param("i", $madk);
                 if (!$stmt->execute()) {
-                    throw new Exception("Error deleting empty registration");
+                    throw new Exception("Lỗi khi xóa đăng ký trống");
                 }
             }
 
@@ -270,7 +298,6 @@ class DangKyHocPhanController {
             header('Location: index.php?controller=dangkyhocphan&success=deleted');
         } catch (Exception $e) {
             $this->conn->rollback();
-            error_log("Delete registration error: " . $e->getMessage());
             header('Location: index.php?controller=dangkyhocphan&error=delete_failed');
         }
         exit;

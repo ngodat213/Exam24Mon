@@ -53,9 +53,6 @@ switch ($controller) {
             case 'index':
                 $controller->index();
                 break;
-            case 'register':
-                $controller->register();
-                break;
             default:
                 $controller->index();
         }
@@ -68,6 +65,15 @@ switch ($controller) {
                 break;
             case 'register':
                 $controller->register();
+                break;
+            case 'addToCart':
+                $controller->addToCart();
+                break;
+            case 'removeFromCart':
+                $controller->removeFromCart();
+                break;
+            case 'clearCart':
+                $controller->clearCart();
                 break;
             case 'delete':
                 $controller->delete();

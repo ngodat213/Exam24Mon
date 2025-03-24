@@ -13,14 +13,16 @@ class HocPhanController {
             exit;
         }
 
-        // Get all available courses
+        // Get all available courses with remaining slots
         $sql = "SELECT hp.* FROM HocPhan hp 
                 WHERE hp.MaHP NOT IN (
                     SELECT ct.MaHP 
                     FROM DangKy dk 
                     JOIN ChiTietDangKy ct ON dk.MaDK = ct.MaDK 
                     WHERE dk.MaSV = ?
-                )";
+                )
+                AND hp.SoLuong > 0
+                ORDER BY hp.MaHP ASC";
         $stmt = $this->conn->prepare($sql);
         $stmt->bind_param("s", $masv);
         $stmt->execute();
