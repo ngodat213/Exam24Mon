@@ -28,17 +28,9 @@ class DangKyHocPhanController {
         $_SESSION['NgaySinh'] = $student['NgaySinh'];
         $_SESSION['MaNganh'] = $student['MaNganh'];
 
-        // Get available courses (that haven't been registered)
-        $sql = "SELECT hp.* 
-                FROM HocPhan hp 
-                WHERE hp.MaHP NOT IN (
-                    SELECT ct.MaHP 
-                    FROM DangKy dk 
-                    JOIN ChiTietDangKy ct ON dk.MaDK = ct.MaDK 
-                    WHERE dk.MaSV = ?
-                )";
+        // Get all courses for selection
+        $sql = "SELECT * FROM HocPhan";
         $stmt = $this->conn->prepare($sql);
-        $stmt->bind_param("s", $masv);
         $stmt->execute();
         $availableCourses = $stmt->get_result();
 
@@ -67,9 +59,15 @@ class DangKyHocPhanController {
             $sql = "INSERT INTO DangKy (NgayDK, MaSV) VALUES (CURDATE(), ?)";
             $stmt = $this->conn->prepare($sql);
             $stmt->bind_param("s", $masv);
-            $stmt->execute();
+            
+            if (!$stmt->execute()) {
+                throw new Exception("Error inserting into DangKy: " . $stmt->error);
+            }
             
             $madk = $this->conn->insert_id;
+            if (!$madk) {
+                throw new Exception("No MaDK was generated");
+            }
 
             // Create ChiTietDangKy records for each selected course
             $sql = "INSERT INTO ChiTietDangKy (MaDK, MaHP) VALUES (?, ?)";
@@ -77,17 +75,26 @@ class DangKyHocPhanController {
             
             foreach ($selectedCourses as $mahp) {
                 $stmt->bind_param("is", $madk, $mahp);
-                $stmt->execute();
+                if (!$stmt->execute()) {
+                    throw new Exception("Error inserting into ChiTietDangKy: " . $stmt->error);
+                }
             }
 
-            // Clear selected courses from session
+            // Clear selected courses from session after successful registration
             unset($_SESSION['selected_courses']);
+            $_SESSION['registration_success'] = true;
+            $_SESSION['last_registration'] = [
+                'madk' => $madk,
+                'courses' => $selectedCourses,
+                'date' => date('Y-m-d')
+            ];
 
             $this->conn->commit();
             header('Location: index.php?controller=dangkyhocphan&success=1');
         } catch (Exception $e) {
             $this->conn->rollback();
-            header('Location: index.php?controller=dangkyhocphan&error=1');
+            error_log("Registration error: " . $e->getMessage());
+            header('Location: index.php?controller=dangkyhocphan&error=1&msg=' . urlencode($e->getMessage()));
         }
     }
 
@@ -103,11 +110,26 @@ class DangKyHocPhanController {
             $_SESSION['selected_courses'] = [];
         }
 
-        if (!in_array($mahp, $_SESSION['selected_courses'])) {
-            $_SESSION['selected_courses'][] = $mahp;
+        // Check if course is already registered
+        $masv = $_SESSION['MaSV'];
+        $sql = "SELECT 1 FROM DangKy dk 
+                JOIN ChiTietDangKy ct ON dk.MaDK = ct.MaDK 
+                WHERE dk.MaSV = ? AND ct.MaHP = ?";
+        $stmt = $this->conn->prepare($sql);
+        $stmt->bind_param("ss", $masv, $mahp);
+        $stmt->execute();
+        if ($stmt->get_result()->num_rows > 0) {
+            header('Location: index.php?controller=hocphan&error=already_registered');
+            exit;
         }
 
-        header('Location: index.php?controller=hocphan&success=added');
+        // Add to session if not already there
+        if (!in_array($mahp, $_SESSION['selected_courses'])) {
+            $_SESSION['selected_courses'][] = $mahp;
+            $_SESSION['cart_updated'] = true;
+        }
+
+        header('Location: index.php?controller=dangkyhocphan');
     }
 
     public function removeFromCart() {
@@ -122,7 +144,8 @@ class DangKyHocPhanController {
             $key = array_search($mahp, $_SESSION['selected_courses']);
             if ($key !== false) {
                 unset($_SESSION['selected_courses'][$key]);
-                $_SESSION['selected_courses'] = array_values($_SESSION['selected_courses']); // Reindex array
+                $_SESSION['selected_courses'] = array_values($_SESSION['selected_courses']);
+                $_SESSION['cart_updated'] = true;
             }
         }
 
