@@ -11,13 +11,13 @@ ob_start();
         <th>Số Tín Chỉ</th>
         <th>Actions</th>
     </tr>
-    <?php while($row = $result->fetch_assoc()): ?>
+    <?php while($row = $availableCourses->fetch_assoc()): ?>
     <tr>
         <td><?php echo $row['MaHP']; ?></td>
         <td><?php echo $row['TenHP']; ?></td>
         <td><?php echo $row['SoTinChi']; ?></td>
         <td>
-            <form action="index.php?controller=dangkyhocphan&action=addToCart" method="POST" style="display: inline;">
+            <form action="index.php?controller=hocphan&action=register" method="POST" style="display: inline;">
                 <input type="hidden" name="MaHP" value="<?php echo $row['MaHP']; ?>">
                 <button type="submit" class="btn-register">Đăng ký</button>
             </form>
@@ -26,9 +26,31 @@ ob_start();
     <?php endwhile; ?>
 </table>
 
-<?php if (isset($_GET['success']) && $_GET['success'] === 'added'): ?>
+<?php if (isset($_GET['success'])): ?>
 <div class="alert alert-success">
-    Đã thêm học phần vào giỏ đăng ký!
+    <?php 
+    if ($_GET['success'] === 'registered') {
+        echo 'Đăng ký học phần thành công!';
+    }
+    ?>
+</div>
+<?php endif; ?>
+
+<?php if (isset($_GET['error'])): ?>
+<div class="alert alert-danger">
+    <?php 
+    switch ($_GET['error']) {
+        case 'already_registered':
+            echo 'Học phần này đã được đăng ký!';
+            break;
+        case 'course_not_found':
+            echo 'Không tìm thấy học phần này!';
+            break;
+        case 'registration_failed':
+            echo 'Có lỗi xảy ra khi đăng ký học phần. Vui lòng thử lại!';
+            break;
+    }
+    ?>
 </div>
 <?php endif; ?>
 
@@ -73,6 +95,12 @@ th {
     color: #155724;
     background-color: #d4edda;
     border-color: #c3e6cb;
+}
+
+.alert-danger {
+    color: #721c24;
+    background-color: #f8d7da;
+    border-color: #f5c6cb;
 }
 </style>
 

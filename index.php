@@ -26,7 +26,7 @@ if (!isset($_SESSION['MaSV']) &&
 
 switch ($controller) {
     case 'sinhvien':
-        $controller = new SinhVienController();
+        $controller = new SinhVienController($db);
         switch ($action) {
             case 'index':
                 $controller->index();
@@ -48,10 +48,13 @@ switch ($controller) {
         }
         break;
     case 'hocphan':
-        $controller = new HocPhanController();
+        $controller = new HocPhanController($db);
         switch ($action) {
             case 'index':
                 $controller->index();
+                break;
+            case 'register':
+                $controller->register();
                 break;
             default:
                 $controller->index();
@@ -74,7 +77,7 @@ switch ($controller) {
         }
         break;
     case 'auth':
-        $controller = new AuthController();
+        $controller = new AuthController($db);
         switch ($action) {
             case 'login':
                 $controller->login();
@@ -87,6 +90,6 @@ switch ($controller) {
         }
         break;
     default:
-        $controller = new SinhVienController();
+        $controller = new SinhVienController($db);
         $controller->index();
 } 
